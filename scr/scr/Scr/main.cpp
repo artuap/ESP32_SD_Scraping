@@ -1,3 +1,13 @@
+/**
+ * @file ESP32_SD_Scraping.cpp
+ * @author Arturo_AlonsoLP Linuxmatic
+ * @brief Srap weather data and log in.
+ * @version 0.1
+ * @date 2026-03-30
+ * * @copyright Copyright (c) 2026 MIT licence
+ * */
+
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
