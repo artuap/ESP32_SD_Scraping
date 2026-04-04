@@ -22,6 +22,14 @@ const char* url = "http://urban.diau.buap.mx/estaciones/ramm07/ramm07.php";
 // Pines SD para ESP32 (Ajustar según tu placa)
 #define SD_CS 5
 
+/**
+ * @brief Function to extract specific data from the HTML.
+ * * scrappin on web site.
+ * * @param nombre_parametro Descripción de lo que recibe.
+ * @return int Descripción de lo que devuelve la función.
+ */
+
+
 // Función para extraer datos específicos del HTML
 String extraerDato(String html, String etiqueta) {
   int posEtiqueta = html.indexOf(etiqueta);
@@ -57,7 +65,7 @@ void loop() {
     int httpCode = http.GET();
 
     if (httpCode == HTTP_CODE_OK) {
-      String payload = http.getString();
+      String payload = http.getString(); //String quitar Srtrings MISRA
 
       // Extracción de los 3 valores específicos
       // Nota: Estas etiquetas deben coincidir exactas con el texto de la web
