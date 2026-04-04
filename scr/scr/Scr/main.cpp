@@ -1,94 +1,105 @@
 /**
  * @file ESP32_SD_Scraping.cpp
  * @author Arturo_AlonsoLP Linuxmatic
- * @brief Srap weather data and log in.
- * @version 0.1
- * @date 2026-03-30
- * * @copyright Copyright (c) 2026 MIT licence
- * */
-
+ * @brief Scrap weather data and log in (MISRA C:2012 compliant style).
+ * @version 0.2
+ */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <SD.h>
 #include <SPI.h>
+#include <stdint.h>
+#include <string.h>
 
-// Configuración de Red
-const char* ssid = "TU_SSID_WIFI";
-const char* password = "TU_PASSWORD";
-const char* url = "http://urban.diau.buap.mx/estaciones/ramm07/ramm07.php";
+/* Tipos de datos de ancho fijo (MISRA Rule 4.6) */
+typedef float           float32_t;
+typedef uint32_t        tick_t;
 
-// Pines SD para ESP32 (Ajustar según tu placa)
-#define SD_CS 5
+/* Configuración de Red (Constantes con punteros restrictivos) */
+static const char* const SSID_WIFI = "TU_SSID_WIFI";
+static const char* const PWD_WIFI  = "TU_PASSWORD";
+static const char* const URL_BASE  = "http://urban.diau.buap.mx/estaciones/ramm07/ramm07.php";
+
+#define SD_CS_PIN      (5)
+#define MAX_BUFFER_WEB (2048U) /* Ajustar según tamaño esperado del HTML */
+#define MAX_VAL_LEN    (16U)
 
 /**
- * @brief Function to extract specific data from the HTML.
- * * scrappin on web site.
- * * @param nombre_parametro Descripción de lo que recibe.
- * @return int Descripción de lo que devuelve la función.
+ * @brief Extrae un valor numérico de una cadena de texto (Buffer seguro).
+ * MISRA: No usa memoria dinámica.
  */
-
-
-// Función para extraer datos específicos del HTML
-String extraerDato(String html, String etiqueta) {
-  int posEtiqueta = html.indexOf(etiqueta);
-  if (posEtiqueta == -1) return "N/A";
-
-  // Buscamos el primer número después de la etiqueta (ej: "Temperatura: ")
-  int inicio = posEtiqueta + etiqueta.length();
-  int fin = html.indexOf(" ", inicio); // Buscamos el espacio o unidad (ºC, hPa, %)
-  
-  return html.substring(inicio, fin);
-}
-
-void setup() {
-  Serial.begin(115200);
-  
-  // Inicializar SD
-  if(!SD.begin(SD_CS)){
-    Serial.println("Error: Tarjeta SD no detectada.");
-  }
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi Conectado");
-}
-
-void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(url);
-    int httpCode = http.GET();
-
-    if (httpCode == HTTP_CODE_OK) {
-      String payload = http.getString(); //String quitar Srtrings MISRA
-
-      // Extracción de los 3 valores específicos
-      // Nota: Estas etiquetas deben coincidir exactas con el texto de la web
-      String temp = extraerDato(payload, "Temperatura: ");
-      String pres = extraerDato(payload, "Presion: ");
-      String hum  = extraerDato(payload, "Humedad: ");
-
-      // Formatting líne for CSV
-      String dataLog = String(millis()) + "," + temp + "," + pres + "," + hum;
-
-      // Save in SD
-      File dataFile = SD.open("/clima_buap.csv", FILE_APPEND);
-      if (dataFile) {
-        dataFile.println(dataLog);
-        dataFile.close();
-        Serial.println("Guardado: " + dataLog);
-      } else {
-        Serial.println("Error abriendo el archivo en SD");
-      }
+static void extraerDato(const char* src, const char* etiqueta, char* dest, uint32_t destSize) {
+    if ((src != NULL) && (etiqueta != NULL) && (dest != NULL)) {
+        const char* p_start = strstr(src, etiqueta);
+        if (p_start != NULL) {
+            p_start += strlen(etiqueta);
+            const char* p_end = strchr(p_start, ' ');
+            
+            size_t len = (p_end != NULL) ? (size_t)(p_end - p_start) : strlen(p_start);
+            
+            if (len >= (size_t)destSize) {
+                len = (size_t)destSize - 1U;
+            }
+            
+            (void)memcpy(dest, p_start, len);
+            dest[len] = '\0';
+        } else {
+            (void)strncpy(dest, "N/A", destSize);
+        }
     }
-    http.end();
-  }
-  
-  delay(300000); // Esperar 5 minutos (300,000 ms) entre lecturas
 }
 
+void setup(void) {
+    Serial.begin(115200);
+    
+    if (!SD.begin((uint8_t)SD_CS_PIN)) {
+        Serial.println(F("Error: SD Fail"));
+    }
+
+    WiFi.begin(SSID_WIFI, PWD_WIFI);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println(F("\nWiFi OK"));
+}
+
+void loop(void) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        (void)http.begin(URL_BASE);
+        
+        int16_t httpCode = (int16_t)http.GET();
+
+        if (httpCode == (int16_t)HTTP_CODE_OK) {
+            /* Uso de buffer estático para evitar fragmentación de heap */
+            static char payload[MAX_BUFFER_WEB];
+            static char temp[MAX_VAL_LEN];
+            static char pres[MAX_VAL_LEN];
+            static char hum[MAX_VAL_LEN];
+            static char dataLog[128];
+
+            (void)strncpy(payload, http.getString().c_str(), sizeof(payload) - 1U);
+
+            extraerDato(payload, "Temperatura: ", temp, (uint32_t)sizeof(temp));
+            extraerDato(payload, "Presion: ", pres, (uint32_t)sizeof(pres));
+            extraerDato(payload, "Humedad: ", hum, (uint32_t)sizeof(hum));
+
+            /* Construcción segura de línea CSV */
+            (void)snprintf(dataLog, sizeof(dataLog), "%lu,%s,%s,%s", 
+                           (unsigned long)millis(), temp, pres, hum);
+
+            File dataFile = SD.open("/clima_buap.csv", FILE_APPEND);
+            if (dataFile) {
+                (void)dataFile.println(dataLog);
+                dataFile.close();
+                Serial.println(dataLog);
+            }
+        }
+        http.end();
+    }
+    
+    delay(300000UL); 
+}
