@@ -65,10 +65,10 @@ void loop() {
       String pres = extraerDato(payload, "Presion: ");
       String hum  = extraerDato(payload, "Humedad: ");
 
-      // Formatear línea para el CSV
+      // Formatting líne for CSV
       String dataLog = String(millis()) + "," + temp + "," + pres + "," + hum;
 
-      // Guardar en SD
+      // Save in SD
       File dataFile = SD.open("/clima_buap.csv", FILE_APPEND);
       if (dataFile) {
         dataFile.println(dataLog);
