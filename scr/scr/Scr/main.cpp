@@ -1,8 +1,7 @@
 /**
  * @file ESP32_SD_Scraping.cpp
- * @author Arturo_AlonsoLP Linuxmatic
- * @brief Scrap weather data and log in (MISRA C:2012 compliant style).
- * @version 0.2
+ * @author Arturo_Alonso_P Linuxmatic & Asistente Progra
+ * @brief Scrap weather data with Time Validation (MISRA C:2012 compliant style).
  */
 
 #include <Arduino.h>
@@ -12,36 +11,34 @@
 #include <SPI.h>
 #include <stdint.h>
 #include <string.h>
+#include "time.h" // Librería estándar de tiempo
 
-/* Tipos de datos de ancho fijo (MISRA Rule 4.6) */
-typedef float           float32_t;
-typedef uint32_t        tick_t;
+typedef float         float32_t;
+typedef uint32_t      tick_t;
 
-/* Configuración de Red (Constantes con punteros restrictivos) */
 static const char* const SSID_WIFI = "TU_SSID_WIFI";
 static const char* const PWD_WIFI  = "TU_PASSWORD";
 static const char* const URL_BASE  = "http://urban.diau.buap.mx/estaciones/ramm07/ramm07.php";
 
-#define SD_CS_PIN      (5)
-#define MAX_BUFFER_WEB (2048U) /* Ajustar según tamaño esperado del HTML */
-#define MAX_VAL_LEN    (16U)
+/* Configuración NTP para México (UTC-6) */
+static const char* const NTP_SERVER = "pool.ntp.org";
+static const long  GMT_OFFSET_SEC   = -21600; // UTC -6 horas
+static const int   DAYLIGHT_OFFSET  = 0;
 
-/**
- * @brief Extrae un valor numérico de una cadena de texto (Buffer seguro).
- * MISRA: No usa memoria dinámica.
- */
+#define SD_CS_PIN      (5)
+#define MAX_BUFFER_WEB (2048U)
+#define MAX_VAL_LEN    (24U) // Incrementado para fechas largas
+
 static void extraerDato(const char* src, const char* etiqueta, char* dest, uint32_t destSize) {
     if ((src != NULL) && (etiqueta != NULL) && (dest != NULL)) {
         const char* p_start = strstr(src, etiqueta);
         if (p_start != NULL) {
             p_start += strlen(etiqueta);
-            const char* p_end = strchr(p_start, ' ');
+            // Buscamos fin de línea o espacio según el formato del HTML
+            const char* p_end = strpbrk(p_start, "< \r\n"); 
             
             size_t len = (p_end != NULL) ? (size_t)(p_end - p_start) : strlen(p_start);
-            
-            if (len >= (size_t)destSize) {
-                len = (size_t)destSize - 1U;
-            }
+            if (len >= (size_t)destSize) { len = (size_t)destSize - 1U; }
             
             (void)memcpy(dest, p_start, len);
             dest[len] = '\0';
@@ -64,32 +61,49 @@ void setup(void) {
         Serial.print(".");
     }
     Serial.println(F("\nWiFi OK"));
+
+    /* Iniciar sincronización de tiempo con el sistema */
+    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET, NTP_SERVER);
 }
 
 void loop(void) {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
         (void)http.begin(URL_BASE);
-        
         int16_t httpCode = (int16_t)http.GET();
 
         if (httpCode == (int16_t)HTTP_CODE_OK) {
-            /* Uso de buffer estático para evitar fragmentación de heap */
             static char payload[MAX_BUFFER_WEB];
             static char temp[MAX_VAL_LEN];
-            static char pres[MAX_VAL_LEN];
-            static char hum[MAX_VAL_LEN];
+            static char fecha_scrap[MAX_VAL_LEN];
+            static char fecha_sys[MAX_VAL_LEN];
             static char dataLog[128];
 
             (void)strncpy(payload, http.getString().c_str(), sizeof(payload) - 1U);
 
+            // 1. Extraer datos del Clima
             extraerDato(payload, "Temperatura: ", temp, (uint32_t)sizeof(temp));
-            extraerDato(payload, "Presion: ", pres, (uint32_t)sizeof(pres));
-            extraerDato(payload, "Humedad: ", hum, (uint32_t)sizeof(hum));
+            
+            // 2. Extraer Fecha de la web (Ajusta "Actualizado: " según el HTML real)
+            extraerDato(payload, "Actualizacion: ", fecha_scrap, (uint32_t)sizeof(fecha_scrap));
 
-            /* Construcción segura de línea CSV */
-            (void)snprintf(dataLog, sizeof(dataLog), "%lu,%s,%s,%s", 
-                           (unsigned long)millis(), temp, pres, hum);
+            // 3. Obtener fecha del sistema
+            struct tm timeinfo;
+            if(!getLocalTime(&timeinfo)){
+                Serial.println("Error: System Time Fail");
+            } else {
+                // Formateamos fecha del sistema igual a la de la web (ej: DD/MM/YYYY)
+                strftime(fecha_sys, sizeof(fecha_sys), "%d/%m/%Y", &timeinfo);
+
+                // 4. VALIDACIÓN SOLICITADA
+                // Si la fecha extraída no coincide con la del sistema
+                if (strstr(fecha_scrap, fecha_sys) == NULL) {
+                    Serial.println(F("Error Update")); 
+                }
+            }
+
+            (void)snprintf(dataLog, sizeof(dataLog), "%s,%s,%s", 
+                           fecha_sys, temp, fecha_scrap);
 
             File dataFile = SD.open("/clima_buap.csv", FILE_APPEND);
             if (dataFile) {
@@ -100,6 +114,5 @@ void loop(void) {
         }
         http.end();
     }
-    
     delay(300000UL); 
 }
