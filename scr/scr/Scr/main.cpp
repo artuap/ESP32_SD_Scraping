@@ -2,8 +2,59 @@
  * @file ESP32_SD_Scraping.cpp
  * @author Arturo_Alonso_P Linuxmatic & Asistente Progra
  * @brief Scrap weather data with Time Validation (MISRA C:2012 compliant style).
+ 
  */
+/************************************************************/
+/*
+*@function Bluetooth comms
+*Feat Bluetooth Integration
+@date 04222026
+#include "BluetoothSerial.h"
 
+// Comprobar si Bluetooth está habilitado
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+BluetoothSerial SerialBT;
+
+// Configuración del Pin y PWM
+const int ledPin = 2; // Pin interno del ESP32 o salida a motor/LED
+const int freq = 5000;
+const int ledChannel = 0;
+const int resolution = 8; // 8 bits nos da el rango 0-255
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Configuración de PWM para el ESP32
+  ledcSetup(ledChannel, freq, resolution);
+  ledcAttachPin(ledPin, ledChannel);
+
+  // Nombre del dispositivo que aparecerá en ArduDroid
+  SerialBT.begin("ESP32_Control"); 
+  Serial.println("El dispositivo está listo para emparejar.");
+}
+
+void loop() {
+  // Verificar si hay datos entrantes por Bluetooth
+  if (SerialBT.available()) {
+    // ArduDroid suele enviar strings o bytes directos. 
+    // Leemos el valor (0-255)
+    int incomingValue = SerialBT.read();
+
+    // Filtramos para asegurar que esté en el rango deseado
+    if (incomingValue >= 0 && incomingValue <= 255) {
+      ledcWrite(ledChannel, incomingValue);
+      
+      // Feedback en el monitor serial
+      Serial.print("Valor recibido: ");
+      Serial.println(incomingValue);
+    }
+  }
+  delay(20);
+}
+/**********************************************************************/
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
